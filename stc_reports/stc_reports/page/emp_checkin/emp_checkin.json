@@ -1,0 +1,20 @@
+{
+ "creation": "2026-04-18 10:00:00.000000",
+ "doctype": "Page",
+ "modified": "2026-04-18 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Stc Reports",
+ "name": "emp-checkin",
+ "owner": "Administrator",
+ "page_name": "emp-checkin",
+ "restrict_to_domain": "",
+ "roles": [
+  {"role": "Employee"},
+  {"role": "HR Manager"},
+  {"role": "HR User"},
+  {"role": "System Manager"},
+  {"role": "Employee Self Service"}
+ ],
+ "system_page": 0,
+ "title": "Employee Checkin"
+}
