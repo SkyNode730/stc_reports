@@ -208,7 +208,9 @@ frappe.pages["emp-checkin"].on_page_show = function (wrapper) {
 .ec-avatar {
     width: 52px; height: 52px; border-radius: 50%; object-fit: cover;
     border: 2.5px solid #7a98dc; box-shadow: 0 2px 6px rgba(60,90,180,.15); background: #eef2ff;
+    cursor: pointer; transition: transform .15s;
 }
+.ec-avatar:hover { transform: scale(1.08); box-shadow: 0 4px 12px rgba(60,90,180,.3); }
 .ec-avatar-ph {
     width: 52px; height: 52px; border-radius: 50%;
     background: linear-gradient(135deg,#e8eeff,#d4dcf7);
@@ -302,18 +304,23 @@ frappe.pages["emp-checkin"].on_page_show = function (wrapper) {
 .ec-loc-link:hover { text-decoration: underline; }
 .ec-loc-text { font-size: 10.5px; color: #5568a0; word-break: break-word; }
 
+/* ── Checkin ID link ── */
+.ec-log-id-link {
+    display: block; font-size: 9px; color: #7090d8; font-weight: 600;
+    text-decoration: none; margin-bottom: 3px; white-space: nowrap;
+}
+.ec-log-id-link:hover { text-decoration: underline; color: #3d5afe; }
+
 /* ── Lightbox ── */
 .ec-lightbox-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,.82);
     z-index: 9999; display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
 }
 .ec-lightbox-img {
     max-width: 88vw; max-height: 88vh;
     border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,.5);
-}
-.ec-lightbox-close {
-    position: absolute; top: 20px; right: 28px;
-    font-size: 36px; color: #fff; cursor: pointer; line-height: 1; user-select: none;
+    cursor: default;
 }
 
 /* ── Absent section ── */
@@ -446,7 +453,7 @@ class EmpCheckinPage {
             fieldtype: "Date", fieldname: "from_date", label: __("From Date"),
             change: () => this.refresh(),
         });
-        this.f_from.set_value(frappe.datetime.add_months(frappe.datetime.get_today(), -1));
+        this.f_from.set_value(frappe.datetime.add_days(frappe.datetime.get_today(), -1));
 
         this.f_to = mk("ec-f-to", {
             fieldtype: "Date", fieldname: "to_date", label: __("To Date"),
@@ -462,6 +469,7 @@ class EmpCheckinPage {
             fieldtype: "Link", fieldname: "department", label: __("Department"),
             options: "Department", change: () => this.refresh(),
         });
+        this.f_dept.set_value("Willow Sales & Marketing  - STC");
         this.f_desig = mk("ec-f-desig", {
             fieldtype: "Link", fieldname: "designation", label: __("Designation"),
             options: "Designation", change: () => this.refresh(),
@@ -481,7 +489,7 @@ class EmpCheckinPage {
     }
 
     _clear_filters() {
-        this.f_from.set_value(frappe.datetime.add_months(frappe.datetime.get_today(), -1));
+        this.f_from.set_value(frappe.datetime.add_days(frappe.datetime.get_today(), -1));
         this.f_to.set_value(frappe.datetime.get_today());
         this.f_emp.set_value("");
         this.f_dept.set_value("");
@@ -716,14 +724,15 @@ class EmpCheckinPage {
         $("#ec-th-check_in_time").off("click.ec-sort").on("click.ec-sort",   () => this._on_th_click("check_in_time"));
         $("#ec-th-check_out_time").off("click.ec-sort").on("click.ec-sort",  () => this._on_th_click("check_out_time"));
 
-        $(document).off("click.ec-lightbox").on("click.ec-lightbox", ".ec-att", function () {
+        $(document).off("click.ec-lightbox").on("click.ec-lightbox", ".ec-att, .ec-avatar", function () {
             const src = $(this).attr("src");
             if (!src) return;
             const ov = $(`<div class="ec-lightbox-overlay">
-                <span class="ec-lightbox-close">&times;</span>
                 <img class="ec-lightbox-img" src="${src}" />
             </div>`);
-            ov.on("click", () => ov.remove());
+            ov.on("click", function (e) {
+                if (!$(e.target).hasClass("ec-lightbox-img")) ov.remove();
+            });
             $("body").append(ov);
         });
     }
@@ -735,11 +744,17 @@ class EmpCheckinPage {
         const inImg    = this._img_or_ph(r.in_attendance_image,  "ec-att", "—", false);
         const outImg   = this._img_or_ph(r.out_attendance_image, "ec-att", "—", false);
 
+        const inIdLink  = r.check_in_id
+            ? `<a class="ec-log-id-link" href="/app/employee-checkin/${this._esc(r.check_in_id)}" target="_blank" rel="noopener">${this._esc(r.check_in_id)}</a>`
+            : "";
+        const outIdLink = r.check_out_id
+            ? `<a class="ec-log-id-link" href="/app/employee-checkin/${this._esc(r.check_out_id)}" target="_blank" rel="noopener">${this._esc(r.check_out_id)}</a>`
+            : "";
         const inTime  = r.check_in_time
-            ? `<span class="ec-t-in">&#10003; ${r.check_in_time}</span>`
+            ? `${inIdLink}<span class="ec-t-in">&#10003; ${r.check_in_time}</span>`
             : `<span class="ec-t-absent">&#10007; Absent</span>`;
         const outTime = r.check_out_time
-            ? `<span class="ec-t-out">&#128336; ${r.check_out_time}</span>`
+            ? `${outIdLink}<span class="ec-t-out">&#128336; ${r.check_out_time}</span>`
             : `<span class="ec-t-missing">&#9888; Missing</span>`;
 
         const shiftIn   = r.shift_in_time  ? `<span class="ec-shift-time">${r.shift_in_time}</span>`  : `<span style="color:#ccc">—</span>`;

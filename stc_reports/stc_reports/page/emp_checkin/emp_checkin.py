@@ -30,6 +30,8 @@ def get_checkin_data(filters):
             MAX(st.end_time)                                                 AS shift_out_time,
             MIN(CASE WHEN ec.log_type = 'IN'  THEN ec.time END)             AS check_in_dt,
             MAX(CASE WHEN ec.log_type = 'OUT' THEN ec.time END)             AS check_out_dt,
+            MIN(CASE WHEN ec.log_type = 'IN'  THEN ec.name END)             AS check_in_id,
+            MAX(CASE WHEN ec.log_type = 'OUT' THEN ec.name END)             AS check_out_id,
             MIN(CASE WHEN ec.log_type = 'IN'  THEN ec.attendance_image END) AS in_attendance_image,
             MAX(CASE WHEN ec.log_type = 'OUT' THEN ec.attendance_image END) AS out_attendance_image,
             MIN(CASE WHEN ec.log_type = 'IN'  THEN ec.log_location END)     AS in_log_location,
