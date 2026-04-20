@@ -6,6 +6,9 @@ from datetime import timedelta, date as dt_date
 import base64
 import mimetypes
 import os
+import hashlib
+
+_IMAGE_CACHE_TTL = 3600  # seconds
 
 
 @frappe.whitelist()
@@ -13,8 +16,8 @@ def get_checkin_data(filters):
     if isinstance(filters, str):
         filters = json.loads(filters)
 
+    filters = dict(filters)
     conditions = _get_conditions(filters)
-
     having = _get_having(filters)
 
     query = """
@@ -60,6 +63,16 @@ def get_checkin_data(filters):
 
     rows = frappe.db.sql(query, filters, as_dict=True)
 
+    # Collect unique image paths and convert each only once per request
+    image_paths = set()
+    for row in rows:
+        for field in ("employee_image", "in_attendance_image", "out_attendance_image"):
+            v = row.get(field)
+            if v:
+                image_paths.add(v)
+
+    image_map = {p: _file_to_data_uri(p) for p in image_paths}
+
     for row in rows:
         row["check_in_time"]  = _dt_to_time_str(row.pop("check_in_dt",  None))
         row["check_out_time"] = _dt_to_time_str(row.pop("check_out_dt", None))
@@ -67,8 +80,9 @@ def get_checkin_data(filters):
         row["shift_out_time"] = _td_to_time_str(row.get("shift_out_time"))
 
         for field in ("employee_image", "in_attendance_image", "out_attendance_image"):
-            if row.get(field):
-                row[field] = _file_to_data_uri(row[field])
+            v = row.get(field)
+            if v:
+                row[field] = image_map.get(v)
 
         if row.get("date") and hasattr(row["date"], "strftime"):
             row["date"] = row["date"].strftime("%Y-%m-%d")
@@ -78,17 +92,15 @@ def get_checkin_data(filters):
 
 @frappe.whitelist()
 def get_absent_employees(filters):
-    """Return active employees who have NO check-in record for at least one
-    date within the selected range, respecting all applicable filters."""
     if isinstance(filters, str):
         filters = json.loads(filters)
 
+    filters = dict(filters)
     from_date = filters.get("from_date")
     to_date   = filters.get("to_date")
     if not from_date or not to_date:
         return []
 
-    # ── Employee filter conditions ──────────────────────────────────────────
     emp_cond = ""
     if filters.get("employee"):
         emp_cond += " AND e.name = %(employee)s"
@@ -96,7 +108,6 @@ def get_absent_employees(filters):
         emp_cond += " AND e.department = %(department)s"
     if filters.get("designation"):
         emp_cond += " AND e.designation = %(designation)s"
-    # Shift: match against employee's default shift (no check-in = no shift record)
     if filters.get("shift"):
         emp_cond += " AND e.default_shift = %(shift)s"
 
@@ -111,16 +122,23 @@ def get_absent_employees(filters):
     if not employees:
         return []
 
-    # ── Dates that each employee actually checked in ────────────────────────
+    # Range condition avoids full scan; filter to only the relevant employees
+    to_date_next = (dt_date.fromisoformat(str(to_date)) + timedelta(days=1)).isoformat()
+    employee_names = tuple(e.employee for e in employees)
+
     checked_in_rows = frappe.db.sql("""
         SELECT DISTINCT ec.employee, DATE(ec.time) AS date
         FROM `tabEmployee Checkin` ec
-        WHERE DATE(ec.time) BETWEEN %(from_date)s AND %(to_date)s
-    """, filters, as_dict=True)
+        WHERE ec.time >= %(from_date)s AND ec.time < %(to_date_next)s
+          AND ec.employee IN %(employee_names)s
+    """, {
+        "from_date": from_date,
+        "to_date_next": to_date_next,
+        "employee_names": employee_names,
+    }, as_dict=True)
 
     checked_in_set = {(r.employee, str(r.date)) for r in checked_in_rows}
 
-    # ── All calendar dates in range ─────────────────────────────────────────
     start = dt_date.fromisoformat(str(from_date))
     end   = dt_date.fromisoformat(str(to_date))
     all_dates = []
@@ -129,7 +147,10 @@ def get_absent_employees(filters):
         all_dates.append(str(d))
         d += timedelta(days=1)
 
-    # ── Build absent list ───────────────────────────────────────────────────
+    # Deduplicate employee image conversions
+    image_paths = {e.image for e in employees if e.image}
+    image_map = {p: _file_to_data_uri(p) for p in image_paths}
+
     result = []
     for emp in employees:
         absent_dates = [d for d in all_dates if (emp.employee, d) not in checked_in_set]
@@ -138,7 +159,7 @@ def get_absent_employees(filters):
         emp_dict = dict(emp)
         emp_dict["absent_dates"] = absent_dates
         emp_dict["absent_count"] = len(absent_dates)
-        emp_dict["employee_image"] = _file_to_data_uri(emp_dict.pop("image", None) or "")
+        emp_dict["employee_image"] = image_map.get(emp_dict.pop("image", None) or "")
         result.append(emp_dict)
 
     return result
@@ -159,9 +180,12 @@ def _get_conditions(filters):
     if filters.get("shift"):
         c += " AND ec.shift = %(shift)s"
     if filters.get("from_date"):
-        c += " AND DATE(ec.time) >= %(from_date)s"
+        # Range condition allows MySQL to use an index on `time`
+        c += " AND ec.time >= %(from_date)s"
     if filters.get("to_date"):
-        c += " AND DATE(ec.time) <= %(to_date)s"
+        to_date_next = (dt_date.fromisoformat(str(filters["to_date"])) + timedelta(days=1)).isoformat()
+        filters["_to_date_next"] = to_date_next
+        c += " AND ec.time < %(_to_date_next)s"
     return c
 
 
@@ -182,6 +206,12 @@ def _file_to_data_uri(file_path):
         return None
     if file_path.startswith(("http://", "https://")):
         return file_path
+
+    cache_key = "ec_img_v1_" + hashlib.md5(file_path.encode()).hexdigest()
+    cached = frappe.cache().get_value(cache_key)
+    if cached:
+        return cached
+
     try:
         is_private = file_path.startswith("/private/")
         if is_private:
@@ -200,13 +230,15 @@ def _file_to_data_uri(file_path):
 
         mime, _ = mimetypes.guess_type(disk_path)
         if not mime:
-            if raw[:4] == b'\x89PNG':            mime = "image/png"
-            elif raw[:3] == b'\xff\xd8\xff':     mime = "image/jpeg"
-            elif raw[:6] in (b'GIF87a', b'GIF89a'): mime = "image/gif"
+            if raw[:4] == b'\x89PNG':                        mime = "image/png"
+            elif raw[:3] == b'\xff\xd8\xff':                 mime = "image/jpeg"
+            elif raw[:6] in (b'GIF87a', b'GIF89a'):          mime = "image/gif"
             elif raw[:4] == b'RIFF' and raw[8:12] == b'WEBP': mime = "image/webp"
-            else:                                mime = "image/jpeg"
+            else:                                             mime = "image/jpeg"
 
-        return "data:{};base64,{}".format(mime, base64.b64encode(raw).decode())
+        result = "data:{};base64,{}".format(mime, base64.b64encode(raw).decode())
+        frappe.cache().set_value(cache_key, result, expires_in_sec=_IMAGE_CACHE_TTL)
+        return result
     except Exception:
         return None
 

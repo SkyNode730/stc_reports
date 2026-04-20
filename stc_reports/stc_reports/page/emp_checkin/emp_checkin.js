@@ -410,6 +410,8 @@ class EmpCheckinPage {
         this.absent      = [];
         this._sort_field = "date";
         this._sort_dir   = "desc";
+        this._cache      = null;
+        this._init_mode  = false;
         this._expand_width();
         this._setup_actions();
         this._render_skeleton();
@@ -443,6 +445,9 @@ class EmpCheckinPage {
 
     // ── Filters (rendered inside page body) ────────────────────────────────
     _setup_filters() {
+        // Suppress refresh() calls triggered by set_value during init
+        this._init_mode = true;
+
         const mk = (id, df) => frappe.ui.form.make_control({
             parent: document.getElementById(id),
             df,
@@ -483,6 +488,8 @@ class EmpCheckinPage {
             options: ["", "In", "Out"].join("\n"),
             change: () => this.refresh(),
         });
+
+        this._init_mode = false;
 
         document.getElementById("ec-apply-btn").addEventListener("click", () => this.refresh());
         document.getElementById("ec-clear-btn").addEventListener("click", () => this._clear_filters());
@@ -555,8 +562,22 @@ class EmpCheckinPage {
 
     // ── Refresh — parallel calls ─────────────────────────────────────────────
     refresh() {
+        if (this._init_mode) return;
+
         this._show_loading();
         const filters = this._get_filters();
+        const cacheKey = JSON.stringify(filters);
+
+        // Serve from short-lived client cache (30 s) to avoid duplicate calls
+        if (this._cache && this._cache.key === cacheKey &&
+                Date.now() - this._cache.ts < 30000) {
+            this.data   = this._cache.data;
+            this.absent = this._cache.absent;
+            this._render_summary();
+            this._render_table();
+            this._render_absent();
+            return;
+        }
 
         Promise.all([
             new Promise(resolve => frappe.call({
@@ -574,6 +595,7 @@ class EmpCheckinPage {
         ]).then(([checkin, absent]) => {
             this.data   = checkin;
             this.absent = absent;
+            this._cache = { key: cacheKey, data: checkin, absent: absent, ts: Date.now() };
             this._render_summary();
             this._render_table();
             this._render_absent();
