@@ -114,6 +114,7 @@ def _file_to_data_uri(file_path):
                 mime = "image/png"
             elif raw[:3] == b'\xff\xd8\xff':
                 mime = "image/jpeg"
+                
             elif raw[:6] in (b'GIF87a', b'GIF89a'):
                 mime = "image/gif"
             elif raw[:4] == b'RIFF' and raw[8:12] == b'WEBP':
