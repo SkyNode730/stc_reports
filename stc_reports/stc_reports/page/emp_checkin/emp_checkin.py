@@ -213,17 +213,12 @@ def _file_to_data_uri(file_path):
         return cached
 
     try:
-        is_private = file_path.startswith("/private/")
-        if is_private:
-            rel_name = file_path[len("/private/files/"):]
-        elif file_path.startswith("/files/"):
-            rel_name = file_path[len("/files/"):]
-        else:
-            rel_name = file_path.lstrip("/")
-
-        disk_path = get_files_path(rel_name, is_private=is_private)
-        if not os.path.isfile(disk_path):
-            return None
+        disk_path = _find_file_on_disk(file_path)
+        if not disk_path:
+            # File not readable from disk — return URL directly.
+            # The browser is already authenticated and Frappe will serve
+            # both /files/ and /private/files/ URLs with proper auth checks.
+            return file_path
 
         with open(disk_path, "rb") as f:
             raw = f.read()
@@ -240,7 +235,38 @@ def _file_to_data_uri(file_path):
         frappe.cache().set_value(cache_key, result, expires_in_sec=_IMAGE_CACHE_TTL)
         return result
     except Exception:
-        return None
+        return file_path  # fallback: let browser fetch with session cookies
+
+
+def _find_file_on_disk(file_path):
+    fp = (file_path or "").strip()
+
+    # Explicit private path  e.g. /private/files/photo.jpg
+    if fp.startswith("/private/files/"):
+        p = get_files_path(fp[len("/private/files/"):], is_private=True)
+        if os.path.isfile(p):
+            return p
+
+    # Explicit public path  e.g. /files/photo.jpg
+    if fp.startswith("/files/"):
+        p = get_files_path(fp[len("/files/"):], is_private=False)
+        if os.path.isfile(p):
+            return p
+
+    # Unknown / bare path — strip any leading path fragments then try both
+    rel = fp.lstrip("/")
+    for prefix in ("private/files/", "files/"):
+        if rel.startswith(prefix):
+            rel = rel[len(prefix):]
+            break
+
+    # Try private first (profile pictures are usually private), then public
+    for is_priv in (True, False):
+        p = get_files_path(rel, is_private=is_priv)
+        if os.path.isfile(p):
+            return p
+
+    return None
 
 
 def _dt_to_time_str(dt):
