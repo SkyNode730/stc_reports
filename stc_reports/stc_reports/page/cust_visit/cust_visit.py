@@ -23,18 +23,20 @@ def get_visit_data(filters):
             v.name                          AS visit_id,
             v.customer_name,
             c.customer_name                 AS customer_display_name,
-            c.image                         AS customer_photo,
             v.date,
             v.time,
             v.visit_type,
             v.custom_log_location,
+            v.description,
+            v.employee                                          AS employee_id,
             v.custom_employee_name,
             e.employee_name,
-            e.image                         AS employee_photo,
+            COALESCE(NULLIF(e.image,''), u.user_image)          AS employee_photo,
             v.visit_proof
         FROM `tabVisit` v
         LEFT JOIN `tabCustomer`  c ON c.name = v.customer_name
-        LEFT JOIN `tabEmployee`  e ON e.name = v.custom_employee_name
+        LEFT JOIN `tabEmployee`  e ON e.name = v.employee
+        LEFT JOIN `tabUser`      u ON u.name = e.user_id
         WHERE 1=1 {conditions}
         ORDER BY v.date DESC, v.time DESC
     """.format(conditions=conditions)
@@ -43,7 +45,7 @@ def get_visit_data(filters):
 
     image_paths = set()
     for row in rows:
-        for field in ("customer_photo", "employee_photo", "visit_proof"):
+        for field in ("employee_photo", "visit_proof"):
             v = row.get(field)
             if v:
                 image_paths.add(v)
@@ -51,7 +53,7 @@ def get_visit_data(filters):
     image_map = {p: _file_to_data_uri(p) for p in image_paths}
 
     for row in rows:
-        for field in ("customer_photo", "employee_photo", "visit_proof"):
+        for field in ("employee_photo", "visit_proof"):
             v = row.get(field)
             if v:
                 row[field] = image_map.get(v)
@@ -74,7 +76,7 @@ def _get_conditions(filters):
     if filters.get("customer"):
         c += " AND v.customer_name = %(customer)s"
     if filters.get("employee"):
-        c += " AND v.custom_employee_name = %(employee)s"
+        c += " AND v.employee = %(employee)s"
     if filters.get("visit_type"):
         c += " AND v.visit_type = %(visit_type)s"
     if filters.get("from_date"):

@@ -885,20 +885,9 @@ class EmpCheckinPage {
             ? `<div class="ec-avatar-ph">${fallbackText}</div>`
             : `<div class="ec-att-ph">${fallbackText}</div>`;
         if (!src) return ph;
-        const img = document.createElement("img");
-        img.className = imgClass;
-        img.src = src;
-        if (!isAvatar) img.title = "Click to enlarge";
-        img.addEventListener("error", function () {
-            if (this.parentNode) {
-                this.parentNode.replaceChild(
-                    document.createRange().createContextualFragment(ph), this
-                );
-            }
-        });
-        const wrap = document.createElement("div");
-        wrap.appendChild(img);
-        return wrap.innerHTML;
+        const title  = isAvatar ? "" : ` title="Click to enlarge"`;
+        const phAttr = ph.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;");
+        return `<img class="${this._esc(imgClass)}" src="${this._esc(src)}"${title} onerror="this.outerHTML='${phAttr}'">`;
     }
 
     _loc_html(loc) {

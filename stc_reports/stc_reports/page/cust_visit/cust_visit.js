@@ -175,6 +175,23 @@ frappe.pages["cust-visit"].on_page_show = function (wrapper) {
 /* ── Main data table ── */
 .cv-table {
     width: 100%; border-collapse: collapse; min-width: 900px;
+    table-layout: fixed;
+}
+/* Column widths — tight on fixed cols, generous on description/location */
+.cv-table col.c-rn       { width: 32px; }
+.cv-table col.c-date     { width: 72px; }
+.cv-table col.c-time     { width: 72px; }
+.cv-table col.c-customer { width: 100px; }
+.cv-table col.c-ephoto   { width: 58px; }
+.cv-table col.c-employee { width: 100px; }
+.cv-table col.c-vtype    { width: 72px; }
+.cv-table col.c-location { width: 230px; }
+.cv-table col.c-desc     { width: 175px; }
+.cv-table col.c-proof    { width: 64px; }
+/* Truncate overflow in fixed cells */
+.cv-table tbody td { overflow: hidden; text-overflow: ellipsis; }
+.cv-table tbody td.td-wrap {
+    white-space: normal; word-break: break-word; overflow: visible;
 }
 .cv-table thead tr {
     background: linear-gradient(90deg,#1a3a7c,#2c5abe);
@@ -236,10 +253,11 @@ frappe.pages["cust-visit"].on_page_show = function (wrapper) {
 .cv-avatar:hover { transform: scale(1.08); box-shadow: 0 4px 12px rgba(60,90,180,.3); }
 .cv-avatar-ph {
     width: 52px; height: 52px; border-radius: 50%;
-    background: linear-gradient(135deg,#e8eeff,#d4dcf7);
-    border: 2px dashed #b0bde8;
+    background: linear-gradient(135deg,#3d5afe,#1a3a7c);
+    border: 2px solid #1a3a7c;
     display: flex; align-items: center; justify-content: center;
-    font-size: 17px; color: #8fa4d8; font-weight: 700; user-select: none;
+    font-size: 15px; color: #fff; font-weight: 800; user-select: none;
+    letter-spacing: 1px;
 }
 
 /* ── Name (Urdu-capable) ── */
@@ -322,24 +340,25 @@ frappe.pages["cust-visit"].on_page_show = function (wrapper) {
     align-items: center; justify-content: flex-end;
 }
 .cv-bar-val {
-    font-size: 7.5px; font-weight: 800; color: #1a3a7c; margin-bottom: 2px;
+    font-size: 11px; font-weight: 800; color: #3d2800; margin-bottom: 3px;
     line-height: 1;
 }
 .cv-bar-body {
-    width: 14px; background: linear-gradient(180deg,#5c7fff,#1a3a7c);
+    width: 14px; background: linear-gradient(180deg,#ffe066,#c8940a);
     border-radius: 3px 3px 0 0; min-height: 4px;
     transition: background .15s;
+    box-shadow: 0 2px 6px rgba(200,148,10,.35);
 }
-.cv-bar-body:hover { background: linear-gradient(180deg,#7c94ff,#3d5afe); }
+.cv-bar-body:hover { background: linear-gradient(180deg,#ffd700,#b8860b); }
 /* labels row — vertical text below baseline */
 .cv-labels-row {
-    display: flex; gap: 5px; height: 56px; align-items: flex-start; padding-top: 3px;
+    display: flex; gap: 5px; height: 90px; align-items: flex-start; padding-top: 4px;
 }
 .cv-bar-lbl-cell {
     width: 22px; display: flex; justify-content: center; overflow: visible;
 }
 .cv-bar-lbl {
-    font-size: 8px; font-weight: 700; color: #1a3a7c; white-space: nowrap;
+    font-size: 11px; font-weight: 700; color: #3d2800; white-space: nowrap;
     writing-mode: vertical-rl; transform: rotate(180deg);
     text-align: left; line-height: 1;
 }
@@ -572,7 +591,7 @@ class CustVisitPage {
     _render_summary() {
         const d = this.data;
         const uniqueCustomers = new Set(d.map(r => r.customer_name).filter(Boolean)).size;
-        const uniqueEmployees = new Set(d.map(r => r.custom_employee_name).filter(Boolean)).size;
+        const uniqueEmployees = new Set(d.map(r => r.employee_id).filter(Boolean)).size;
 
         const typeCounts = {};
         d.forEach(r => {
@@ -711,16 +730,22 @@ class CustVisitPage {
             </div>
             <div class="cv-table-wrap">
                 <table class="cv-table">
+                    <colgroup>
+                        <col class="c-rn"><col class="c-date"><col class="c-time">
+                        <col class="c-customer"><col class="c-ephoto"><col class="c-employee">
+                        <col class="c-vtype"><col class="c-location"><col class="c-desc">
+                        <col class="c-proof">
+                    </colgroup>
                     <thead><tr>
                         <th>#</th>
                         <th class="cv-th-sortable" id="cv-th-date">Date ${this._th_arrow("date")}</th>
                         <th class="cv-th-sortable" id="cv-th-time">Time ${this._th_arrow("time")}</th>
-                        <th>Cust. Photo</th>
                         <th class="th-left cv-th-sortable" id="cv-th-customer_name">Customer ${this._th_arrow("customer_name")}</th>
                         <th>Emp. Photo</th>
                         <th class="th-left cv-th-sortable" id="cv-th-employee_name">Employee ${this._th_arrow("employee_name")}</th>
                         <th class="cv-th-sortable" id="cv-th-visit_type">Visit Type ${this._th_arrow("visit_type")}</th>
                         <th class="th-left">Location</th>
+                        <th class="th-left">Description</th>
                         <th>Visit Proof</th>
                     </tr></thead>
                     <tbody>${rows}</tbody>
@@ -750,14 +775,11 @@ class CustVisitPage {
     _row_html(r, i) {
         const alt = i % 2 === 1 ? " alt" : "";
 
-        const custInitials = ((r.customer_display_name || r.customer_name || "?").split(" ")
-            .map(w => w[0]).slice(0, 2).join("")).toUpperCase();
-        const empInitials  = ((r.employee_name || "?").split(" ")
+        const empInitials = ((r.employee_name || "?").split(" ")
             .map(w => w[0]).slice(0, 2).join("")).toUpperCase();
 
-        const custPhoto = this._img_or_ph(r.customer_photo, "cv-avatar", custInitials, true);
-        const empPhoto  = this._img_or_ph(r.employee_photo, "cv-avatar", empInitials, true);
-        const proof     = this._img_or_ph(r.visit_proof, "cv-proof", "&#128247;", false);
+        const empPhoto = this._img_or_ph(r.employee_photo, "cv-avatar", empInitials, true);
+        const proof    = this._img_or_ph(r.visit_proof, "cv-proof", "&#128247;", false);
 
         const visitLink = r.visit_id
             ? `<a class="cv-visit-link" href="/app/visit/${this._esc(r.visit_id)}" target="_blank" rel="noopener">${this._esc(r.visit_id)}</a>`
@@ -777,20 +799,24 @@ class CustVisitPage {
             : `<span>—</span>`;
 
         const empDisplay = r.employee_name || r.custom_employee_name || "—";
-        const empLink    = r.custom_employee_name
-            ? `<a class="cv-empid" href="/app/employee/${this._esc(r.custom_employee_name)}" target="_blank" rel="noopener">${this._esc(empDisplay)}</a>`
-            : `<span>—</span>`;
+        const empLink    = r.employee_id
+            ? `<a class="cv-empid" href="/app/employee/${this._esc(r.employee_id)}" target="_blank" rel="noopener">${this._esc(empDisplay)}</a>`
+            : `<span>${this._esc(empDisplay)}</span>`;
+
+        const descCell = r.description
+            ? `<span style="font-size:11px;color:#2c3354;">${this._esc(r.description)}</span>`
+            : `<span style="color:#ccc">—</span>`;
 
         return `<tr class="${alt}">
             <td><span class="cv-rn">${i + 1}</span></td>
             <td><span class="cv-date">${this._fmt_date(r.date)}</span>${visitLink}</td>
             <td>${timeCell}</td>
-            <td><div class="cv-avatar-wrap">${custPhoto}</div></td>
             <td class="td-left"><span class="cv-cname">${custLink}</span></td>
             <td><div class="cv-avatar-wrap">${empPhoto}</div></td>
             <td class="td-left"><span class="cv-ename">${empLink}</span></td>
             <td>${vtypeCell}</td>
-            <td class="td-left">${this._loc_html(r.custom_log_location)}</td>
+            <td class="td-left td-wrap">${this._loc_html(r.custom_log_location)}</td>
+            <td class="td-left td-wrap">${descCell}</td>
             <td><div class="cv-proof-wrap">${proof}</div></td>
         </tr>`;
     }
@@ -801,20 +827,9 @@ class CustVisitPage {
             ? `<div class="cv-avatar-ph">${fallbackText}</div>`
             : `<div class="cv-proof-ph">${fallbackText}</div>`;
         if (!src) return ph;
-        const img = document.createElement("img");
-        img.className = imgClass;
-        img.src = src;
-        if (!isAvatar) img.title = "Click to enlarge";
-        img.addEventListener("error", function () {
-            if (this.parentNode) {
-                this.parentNode.replaceChild(
-                    document.createRange().createContextualFragment(ph), this
-                );
-            }
-        });
-        const wrap = document.createElement("div");
-        wrap.appendChild(img);
-        return wrap.innerHTML;
+        const title  = isAvatar ? "" : ` title="Click to enlarge"`;
+        const phAttr = ph.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;");
+        return `<img class="${this._esc(imgClass)}" src="${this._esc(src)}"${title} onerror="this.outerHTML='${phAttr}'">`;
     }
 
     _loc_html(loc) {
@@ -856,7 +871,7 @@ class CustVisitPage {
         const d        = this.data;
         const company  = (frappe.boot.sysdefaults && frappe.boot.sysdefaults.company) || "Company";
         const uniqueC  = new Set(d.map(r => r.customer_name).filter(Boolean)).size;
-        const uniqueE  = new Set(d.map(r => r.custom_employee_name).filter(Boolean)).size;
+        const uniqueE  = new Set(d.map(r => r.employee_id).filter(Boolean)).size;
 
         const badges = [
             filters.from_date  ? `<span class="b">From: ${this._fmt_date(filters.from_date)}</span>` : "",
@@ -895,12 +910,9 @@ class CustVisitPage {
 
         const visitRows = d.map((r, i) => {
             const alt = i % 2 === 1 ? ' class="alt"' : "";
-            const custPhoto = r.customer_photo
-                ? `<img style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid #7a98dc;" src="${r.customer_photo}">`
-                : `<div style="width:40px;height:40px;border-radius:50%;background:#eef2ff;border:1px dashed #b0bde8;display:flex;align-items:center;justify-content:center;font-weight:700;color:#8fa4d8;font-size:13px;margin:auto;">${(r.customer_display_name||r.customer_name||"?")[0]}</div>`;
             const empPhoto = r.employee_photo
                 ? `<img style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid #7a98dc;" src="${r.employee_photo}">`
-                : `<div style="width:40px;height:40px;border-radius:50%;background:#eef2ff;border:1px dashed #b0bde8;display:flex;align-items:center;justify-content:center;font-weight:700;color:#8fa4d8;font-size:13px;margin:auto;">${(r.employee_name||"?")[0]}</div>`;
+                : `<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#3d5afe,#1a3a7c);border:2px solid #1a3a7c;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:13px;margin:auto;">${((r.employee_name||"?")[0]).toUpperCase()}</div>`;
             const proofImg = r.visit_proof
                 ? `<img style="width:44px;height:44px;border-radius:4px;object-fit:cover;" src="${r.visit_proof}">` : "—";
             const loc = r.custom_log_location
@@ -912,12 +924,12 @@ class CustVisitPage {
                 <td style="color:#a0a8c8;font-size:9px;">${i+1}</td>
                 <td style="font-weight:700;color:#1a3a7c;font-size:9.5px;white-space:nowrap;">${this._fmt_date(r.date)}</td>
                 <td style="font-size:9px;color:#1a7a2e;">${r.time || "—"}</td>
-                <td style="text-align:center;">${custPhoto}</td>
                 <td style="font-weight:700;font-size:10.5px;text-align:left;padding-left:5px;">${r.customer_display_name||r.customer_name||"—"}</td>
                 <td style="text-align:center;">${empPhoto}</td>
                 <td style="font-weight:700;font-size:10.5px;text-align:left;">${r.employee_name||r.custom_employee_name||"—"}</td>
                 <td style="text-align:center;"><span style="background:#eef2ff;color:#3d5afe;border-radius:3px;padding:1px 6px;font-size:8.5px;font-weight:600;">${r.visit_type||"—"}</span></td>
                 <td style="text-align:left;font-size:8px;">${loc}</td>
+                <td style="text-align:left;font-size:8px;color:#2c3354;">${r.description||"—"}</td>
                 <td style="text-align:center;">${proofImg}</td>
             </tr>`;
         }).join("");
@@ -967,9 +979,10 @@ ${pdfChart}
 <table class="mt">
   <thead><tr>
     <th>#</th><th>Date</th><th>Time</th>
-    <th>Cust. Photo</th><th style="text-align:left;padding-left:5px;">Customer</th>
+    <th style="text-align:left;padding-left:5px;">Customer</th>
     <th>Emp. Photo</th><th style="text-align:left;">Employee</th>
-    <th>Visit Type</th><th style="text-align:left;">Location</th><th>Proof</th>
+    <th>Visit Type</th><th style="text-align:left;">Location</th>
+    <th style="text-align:left;">Description</th><th>Proof</th>
   </tr></thead>
   <tbody>${visitRows}</tbody>
 </table>
@@ -995,8 +1008,8 @@ ${pdfChart}
         const filters = this._get_filters();
         const esc     = v => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
 
-        const cols  = ["Date","Time","Customer ID","Customer Name","Employee ID","Employee Name","Visit Type","Location","Visit ID"];
-        const flds  = ["date","time","customer_name","customer_display_name","custom_employee_name","employee_name","visit_type","custom_log_location","visit_id"];
+        const cols  = ["Date","Time","Customer ID","Customer Name","Employee ID","Employee Name","Visit Type","Location","Description","Visit ID"];
+        const flds  = ["date","time","customer_name","customer_display_name","employee_id","employee_name","visit_type","custom_log_location","description","visit_id"];
         const lines = [
             cols.map(esc).join(","),
             ...this.data.map(r => flds.map(f => esc(f === "date" ? this._fmt_date(r[f]) : r[f])).join(",")),
